@@ -7,7 +7,13 @@
 #include <stdio.h>
 #include <android/log.h>
 
-//#define DEBUG
+// #define DEBUG
+
+#define JNI_METHOD_DEFINE
+#define JNI_PROTECT __attribute((__annotate__(("fla")))) \
+    __attribute((__annotate__(("split")))) \
+    __attribute((__annotate__(("sub"))))  \
+    __attribute((__annotate__(("bcf"))))  
 
 #define D2C_RESOLVE_CLASS(cached_class, class_name)                          \
   if (cached_class == NULL && d2c_resolve_class(env, &cached_class, class_name)) {                   \
@@ -59,9 +65,41 @@
     goto EX_HANDLE;                                                         \
   }
 
+#if defined(__arm__)
+#if defined(__ARM_ARCH_7A__)
+#if defined(__ARM_NEON__)
+#if defined(__ARM_PCS_VFP)
+#define ABI "armeabi-v7a/NEON (hard-float)"
+#else
+#define ABI "armeabi-v7a/NEON"
+#endif
+#else
+#if defined(__ARM_PCS_VFP)
+#define ABI "armeabi-v7a (hard-float)"
+#else
+#define ABI "armeabi-v7a"
+#endif
+#endif
+#else
+#define ABI "armeabi"
+#endif
+#elif defined(__i386__)
+#define ABI "x86"
+#elif defined(__x86_64__)
+#define ABI "x86_64"
+#elif defined(__mips64)  /* mips64el-* toolchain defines __mips__ too */
+#define ABI "mips64"
+#elif defined(__mips__)
+#define ABI "mips"
+#elif defined(__aarch64__)
+#define ABI "arm64-v8a"
+#else
+#define ABI "unknown"
+#endif
+
 #ifdef DEBUG
 #define LOGD(...)                                                           \
-  __android_log_print(ANDROID_LOG_DEBUG, "Dex2C", __VA_ARGS__)
+  __android_log_print(ANDROID_LOG_DEBUG, "wf_protect_" ABI, __VA_ARGS__)
 #else
 #define LOGD(...) (0)
 #endif

@@ -332,6 +332,9 @@ def MangleForJni(name):
             result += '_0%04x' % (ord(ch))
     return result
 
+def EscForJni(name):
+    return str(name.encode())[2:-1]
+
 
 def JniShortName(cls_name, method_name):
     assert cls_name[0] == 'L'

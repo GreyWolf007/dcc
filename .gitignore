@@ -1,0 +1,6 @@
+/temp
+app*.apk
+__pycache__
+/test.py
+/project-source.zip
+/*.apk

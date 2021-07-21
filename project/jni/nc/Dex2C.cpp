@@ -250,12 +250,25 @@ bool d2c_resolve_field(JNIEnv *env, jclass *cached_class, jfieldID *cached_field
     return *cached_field == NULL;
 }
 
-JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+#define ENTRY_POINT_CLASS_NAME "com/wolf/protect/EntryPoint"
+extern void entryPoint(JNIEnv *env, jobject instance, jint v);
+static const JNINativeMethod EntryPointMethods[] = {
+        {"stub", "(I)V", reinterpret_cast<void *>(entryPoint)},
+};
+
+JNIEXPORT jint JNI_PROTECT JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *env;
 
     if (vm->GetEnv((void **) &env, JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
     cache_well_known_classes(env);
+
+    jclass clazz = env->FindClass(ENTRY_POINT_CLASS_NAME);
+    int rc = env->RegisterNatives(clazz, EntryPointMethods,
+                                  sizeof(EntryPointMethods) / sizeof(JNINativeMethod));
+    env->DeleteLocalRef(clazz);
+    if (rc != JNI_OK)return JNI_FALSE;
+
     return JNI_VERSION_1_6;
 }

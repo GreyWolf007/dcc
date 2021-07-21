@@ -98,7 +98,8 @@ class Writer(object):
 
         self.write("\n/* %s->%s%s */\n" % (class_name, name, proto))
 
-        self.write('extern "C" JNIEXPORT %s JNICALL\n' % get_native_type(self.irmethod.rtype))
+        # self.write('extern "C" JNIEXPORT %s JNICALL\n' % get_native_type(self.irmethod.rtype))
+        self.write('JNICALL JNI_METHOD_DEFINE %s \n' % get_native_type(self.irmethod.rtype))
         self.write(jni_name)
         params = self.irmethod.params
         if 'static' not in access:

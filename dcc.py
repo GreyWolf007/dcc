@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import json
+import pathlib
 
 from androguard.core import androconf
 from androguard.core.analysis import analysis
@@ -16,12 +17,12 @@ from androguard.core.androconf import show_logging
 from androguard.core.bytecodes import apk, dvm
 from androguard.util import read
 from dex2c.compiler import Dex2C
-from dex2c.util import JniLongName, get_method_triple, get_access_method, is_synthetic_method, is_native_method
+from dex2c.util import JniLongName, get_method_triple, get_access_method, is_synthetic_method, is_native_method,MangleForJni,EscForJni
 
 APKTOOL = 'tools/apktool.jar'
-SIGNJAR = 'tools/signapk.jar'
 NDKBUILD = 'ndk-build'
 LIBNATIVECODE = 'libnc.so'
+UPX = ''
 
 logger = logging.getLogger('dcc')
 
@@ -38,20 +39,22 @@ def cpu_count():
 
 def make_temp_dir(prefix='dcc'):
     global tempfiles
-    tmp = tempfile.mkdtemp(prefix=prefix)
+    tmp = tempfile.mkdtemp(prefix=prefix,dir='./temp')
     tempfiles.append(tmp)
     return tmp
 
 
-def make_temp_file(suffix=''):
+def make_temp_file(suffix='',prefix='dcc'):
     global tempfiles
-    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    fd, tmp = tempfile.mkstemp(suffix=suffix,prefix=prefix,dir='./temp')
     os.close(fd)
     tempfiles.append(tmp)
     return tmp
 
 
 def clean_temp_files():
+    logger.info("debug mode do not clean temp files")
+    return
     for name in tempfiles:
         if not os.path.exists(name):
             continue
@@ -80,7 +83,12 @@ def sign(unsigned_apk, signed_apk):
     pem = os.path.join('tests/testkey/testkey.x509.pem')
     pk8 = os.path.join('tests/testkey/testkey.pk8')
     logger.info("signing %s -> %s" % (unsigned_apk, signed_apk))
-    subprocess.check_call(['java', '-jar', SIGNJAR, pem, pk8, unsigned_apk, signed_apk])
+    subprocess.check_call(['tools/zipalign.exe','-p', '-f' ,'-v' ,'4',unsigned_apk,signed_apk],stdout=subprocess.DEVNULL)
+    subprocess.check_call(['java', '-jar', 'tools/apksigner.jar','sign',
+    '--key',pk8,
+     '--cert',pem , 
+     '--v3-signing-enabled', 'false', '--v4-signing-enabled' ,'false',signed_apk])
+    subprocess.check_call(['java', '-jar', 'tools/apksigner.jar','verify' ,'-v',signed_apk])
 
 
 def build_project(project_dir, num_processes=0):
@@ -244,6 +252,32 @@ def copy_compiled_libs(project_dir, decompiled_dir):
         libnc = os.path.join(src, LIBNATIVECODE)
         shutil.copy(libnc, dst)
 
+def compress_native_libs(decompiled_dir):
+    if not os.path.exists(UPX):
+        logger.warning("UPX NOT SET")
+        return
+    decompiled_libs_dir = os.path.join(decompiled_dir, "lib")
+    my_ndk=pathlib.Path(NDKBUILD).parent.absolute()
+    print(f'my_ndk={my_ndk} {type(my_ndk)}')
+    stripMap={
+                    "armeabi-v7a":os.path.join( my_ndk , 'toolchains/arm-linux-androideabi-4.9/prebuilt/windows-x86_64/bin/arm-linux-androideabi-strip'),
+                    "arm64-v8a"  :os.path.join( my_ndk , 'toolchains/aarch64-linux-android-4.9/prebuilt/windows-x86_64/bin/aarch64-linux-android-strip'),
+                    "x86"        :os.path.join(my_ndk , 'toolchains/x86-4.9/prebuilt/windows-x86_64/bin/i686-linux-android-strip'),
+                    "x86_64"     :os.path.join(my_ndk, 'toolchains/x86_64-4.9/prebuilt/windows-x86_64/bin/x86_64-linux-android-strip'),
+    }
+    for k in stripMap.keys():
+        if is_windows():
+            stripMap[k]=stripMap[k]+'.exe'
+    for abi in os.listdir(decompiled_libs_dir):
+        assert abi in stripMap,'不支持strip'
+        stripprogram=stripMap[abi]
+        assert os.path.exists(stripprogram),f'strip不存在:{stripprogram}'
+        libPath=os.path.join(decompiled_libs_dir,abi,'libstub.so')
+        assert os.path.exists(libPath)
+        subprocess.check_call([stripprogram, '--strip-unneeded','-R','.note.gnu.property','-v',libPath])
+        subprocess.check_call([UPX,'-9','--android-shlib',libPath])
+
+
 
 def native_class_methods(smali_path, compiled_methods):
     def next_line():
@@ -260,6 +294,14 @@ def native_class_methods(smali_path, compiled_methods):
                 break
             else:
                 continue
+    def skip_annotanion():
+        while True:
+            line = next_line()
+            if not line:
+                break
+            s = line.strip()
+            if s == '.end annotation':
+                break
 
     def handle_method_body():
         while True:
@@ -275,8 +317,36 @@ def native_class_methods(smali_path, compiled_methods):
             else:
                 continue
 
+    def get_stub_code():
+        stubCode=clzIndexMap[class_name]
+        stubCode=stubCode^20
+        # 进行预处理
+        return f'0x{stubCode:x}'
+    def handle_static_init():
+        while True:
+            line = next_line()
+            if not line:
+                break
+            s = line.strip()
+            # 矫正寄存器数量
+            if s.startswith('.locals'):
+                if s.split(' ')[-1]=='0':
+                    line='    .locals 1\n'
+                code_lines.append(line)
+                line='\n'
+                assert class_name in clzIndexMap,f'找不到:{class_name}'
+                code_lines.append(f'const v0, {get_stub_code()}\n')
+                code_lines.append('invoke-static {v0}, Lcom/wolf/protect/EntryPoint;->stub(I)V\n')
+            code_lines.append(line)
+            if s == '.end method':
+                break
+
+
+
+
     code_lines = []
     class_name = ''
+    has_static_init=False
     with open(smali_path, 'r') as fp:
         while True:
             line = next_line()
@@ -286,6 +356,9 @@ def native_class_methods(smali_path, compiled_methods):
             line = line.strip()
             if line.startswith('.class'):
                 class_name = line.split(' ')[-1]
+            elif re.match(r'\.method.*constructor <clinit>\(\)V',line,re.S):
+                handle_static_init()
+                has_static_init=True
             elif line.startswith('.method'):
                 current_method = line.split(' ')[-1]
                 param = current_method.find('(')
@@ -295,7 +368,20 @@ def native_class_methods(smali_path, compiled_methods):
                         code_lines[-1] = code_lines[-1].replace(current_method, 'native ' + current_method)
                     handle_method_body()
                     code_lines.append('.end method\n')
+            elif line.startswith('.annotation runtime'):
+                if re.match(r'\.annotation.*Dex2C;',line,re.S):
+                    del code_lines[-1]
+                    skip_annotanion()
 
+
+    if not has_static_init:
+        assert class_name in clzIndexMap,f'找不到:{class_name}'
+        code_lines.append('.method public static constructor <clinit>()V\n')
+        code_lines.append('    .locals 1\n')
+        code_lines.append(f'    const v0, {get_stub_code()}\n')
+        code_lines.append('    invoke-static {v0}, Lcom/wolf/protect/EntryPoint;->stub(I)V\n')
+        code_lines.append('    return-void\n')
+        code_lines.append('.end method\n')
     with open(smali_path, 'w') as fp:
         fp.writelines(code_lines)
 
@@ -305,6 +391,10 @@ def native_compiled_dexes(decompiled_dir, compiled_methods):
     classes_output = list(filter(lambda x: x.find('smali') >= 0, os.listdir(decompiled_dir)))
     todo = []
     for classes in classes_output:
+        for root, dirs, files in os.walk(os.path.join(decompiled_dir, classes)):
+            for name in files:
+                if(name.endswith('Dex2C.smali')):
+                    os.unlink(os.path.join(root,name))
         for method_triple in compiled_methods.keys():
             cls_name, name, proto = method_triple
             cls_name = cls_name[1:-1]  # strip L;
@@ -315,11 +405,15 @@ def native_compiled_dexes(decompiled_dir, compiled_methods):
     for smali_path in todo:
         native_class_methods(smali_path, compiled_methods)
 
-
+patternFunc = re.compile(r'JNICALL[^{]+')
+patternJava = re.compile(r'Java_[^()]+')
+# className index
+clzIndexMap=dict()
 def write_compiled_methods(project_dir, compiled_methods):
     source_dir = os.path.join(project_dir, 'jni', 'nc')
     if not os.path.exists(source_dir):
         os.makedirs(source_dir)
+
 
     for method_triple, code in compiled_methods.items():
         full_name = JniLongName(*method_triple)
@@ -332,6 +426,40 @@ def write_compiled_methods(project_dir, compiled_methods):
 
     with open(os.path.join(source_dir, 'compiled_methods.txt'), 'w') as fp:
         fp.write('\n'.join(list(map(''.join, compiled_methods.keys()))))
+    
+    
+    clzMap=dict()
+    for method_triple, code in compiled_methods.items():
+        if not method_triple[0] in clzMap:
+            clzMap[method_triple[0]]=[] 
+        clzMap[method_triple[0]].append((method_triple, code))
+
+    funcdeclare=''
+    entryArray=f'static const ClassEntry entryArray[] = {{\n'
+    clzCodess=''
+    index=0
+    for clzname, methods in clzMap.items():
+        assert clzname[0] == 'L'
+        assert clzname[-1] == ';'
+        clzMethodArrayName='Jni_'+MangleForJni(clzname[1:-1])
+        clzCode=f'static const JNINativeMethod {clzMethodArrayName}[] = {{\n'
+        for method_triple, code in methods:
+            funcdeclare+='extern '+re.findall(patternFunc, code)[0]+';\n'
+            funcName=re.findall(patternJava, code)[0]
+            clzCode+=f'{{"{EscForJni(method_triple[1])}", "{EscForJni(method_triple[2])}", reinterpret_cast<void *>({funcName})}},\n'
+        clzCode+='};\n'
+        findClzName=EscForJni(clzname[1:-1])
+        clzIndexMap[clzname]=index
+        entryArray+=f'/*index:{index}*/{{"{findClzName}", {clzMethodArrayName}, sizeof({clzMethodArrayName}) / sizeof(JNINativeMethod)}},\n'
+        index+=1
+        clzCodess+=clzCode
+    entryArray+='};\n'
+
+    stubCodes='//CODE BEGIN\n'+funcdeclare+clzCodess+entryArray+'\n//CODE END\n'
+    with open(os.path.join(source_dir, 'NativeEntry.cpp'), 'r') as fp:
+        stubCodes=fp.read().replace(r'//####REPLACE####',stubCodes)
+    with open(os.path.join(source_dir, 'NativeEntry.cpp'), 'w+') as fp:
+        fp.write(stubCodes)
 
 
 def archive_compiled_code(project_dir):
@@ -359,11 +487,10 @@ def compile_dex(apkfile, filtercfg):
         jni_longname = JniLongName(*method_triple)
         full_name = ''.join(method_triple)
 
-        if len(jni_longname) > 220:
-            logger.debug("name to long %s(> 220) %s" % (jni_longname, full_name))
-            continue
-
         if method_filter.should_compile(m):
+            if len(jni_longname) > 220:
+                logger.error("name to long %s(> 220) %s" % (jni_longname, full_name))
+                continue
             logger.debug("compiling %s" % (full_name))
             try:
                 code = compiler.get_source_method(m)
@@ -414,7 +541,9 @@ def dcc_main(apkfile, filtercfg, outapk, do_compile=True, project_dir=None, sour
     if is_apk(apkfile) and outapk:
         decompiled_dir = ApkTool.decompile(apkfile)
         native_compiled_dexes(decompiled_dir, compiled_methods)
+        shutil.copytree('smali', decompiled_dir+'/smali',dirs_exist_ok=True)
         copy_compiled_libs(project_dir, decompiled_dir)
+        compress_native_libs(decompiled_dir)
         unsigned_apk = ApkTool.compile(decompiled_dir)
         sign(unsigned_apk, outapk)
 
@@ -455,6 +584,8 @@ if __name__ == '__main__':
             NDKBUILD = os.path.join(ndk_dir, 'ndk-build.cmd')
         else:
             NDKBUILD = os.path.join(ndk_dir, 'ndk-build')
+    if 'upx_full_path' in dcc_cfg and os.path.exists(dcc_cfg['upx_full_path']):
+        UPX = dcc_cfg['upx_full_path']
 
     if 'apktool' in dcc_cfg and os.path.exists(dcc_cfg['apktool']):
         APKTOOL = dcc_cfg['apktool']
