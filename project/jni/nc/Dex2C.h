@@ -10,10 +10,15 @@
 // #define DEBUG
 
 #define JNI_METHOD_DEFINE
+#ifdef DEBUG
+#define JNI_PROTECT
+#else
 #define JNI_PROTECT __attribute((__annotate__(("fla")))) \
     __attribute((__annotate__(("split")))) \
     __attribute((__annotate__(("sub"))))  \
     __attribute((__annotate__(("bcf"))))  
+#endif
+
 
 #define D2C_RESOLVE_CLASS(cached_class, class_name)                          \
   if (cached_class == NULL && d2c_resolve_class(env, &cached_class, class_name)) {                   \

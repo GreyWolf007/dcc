@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import json
-import pathlib
+import pathlib,zipfile
 
 from androguard.core import androconf
 from androguard.core.analysis import analysis
@@ -23,6 +23,7 @@ APKTOOL = 'tools/apktool.jar'
 NDKBUILD = 'ndk-build'
 LIBNATIVECODE = 'libnc.so'
 UPX = ''
+SEVENZIP=''
 
 logger = logging.getLogger('dcc')
 
@@ -69,13 +70,59 @@ class ApkTool(object):
     @staticmethod
     def decompile(apk):
         outdir = make_temp_dir('dcc-apktool-')
-        subprocess.check_call(['java', '-jar', APKTOOL, 'd', '-r', '-f', '-o', outdir, apk])
+        if os.path.exists(outdir):
+            shutil.rmtree(outdir)
+        subprocess.check_call(['java', '-jar', APKTOOL, 'd', '-r', '-o', outdir, apk])
         return outdir
+    # @staticmethod
+    # def replace_zip(src_dir,in_zip_path,out_zip_path):
+    #     src_dir=src_dir.replace('\\','/')
+    #     entry_map=dict()
+    #     for root, dirs, files in os.walk(src_dir, topdown=False):
+    #         for f in files:
+    #             p=os.path.join(root,f).replace('\\','/')
+    #             entry_name=p.replace(src_dir,'')
+    #             if entry_name.startswith('/'):
+    #                 entry_name=entry_name[1:]
+    #             entry_map[entry_name]=p
 
+    #     with zipfile.ZipFile(in_zip_path) as inzip, zipfile.ZipFile(out_zip_path, "w",compression=zipfile.ZIP_STORED,compresslevel=9) as outzip:
+    #         for inzipinfo in inzip.infolist():
+    #             if(inzipinfo.filename.startswith('META-INF')):
+    #                 print(f'fff==={inzipinfo.filename}')
+    #             with inzip.open(inzipinfo) as infile:
+    #                 content = infile.read()
+    #                 if inzipinfo.filename in entry_map:
+    #                     with open(entry_map[inzipinfo.filename],'rb') as fp:
+    #                         logger.info(f'replace zip entry {inzipinfo.filename}')
+    #                         content=fp.read()
+    #                         del entry_map[inzipinfo.filename]
+    #                 outzip.writestr(inzipinfo.filename, content)
+    #         for entry_name,p in entry_map.items():
+    #             logger.info(f'add zip entry {entry_name}')
+    #             with open(p,'rb') as fp:
+    #                 outzip.writestr(entry_name,fp.read())
     @staticmethod
-    def compile(decompiled_dir):
+    def compile(decompiled_dir,original_apk):
         unsiged_apk = make_temp_file('-unsigned.apk')
         subprocess.check_call(['java', '-jar', APKTOOL, 'b', '-o', unsiged_apk, decompiled_dir])
+        # wkdir=os.path.join(decompiled_dir,'build/apk')
+        # for file_name in os.listdir(wkdir):
+        #     if file_name.endswith('.dex'):
+        #         pass
+        #     elif file_name=='lib':
+        #         pass
+        #     else:
+        #         rm_file=os.path.join(wkdir,file_name)
+        #         if os.path.isfile(rm_file):
+        #             os.unlink(rm_file)
+        #         else:
+        #             shutil.rmtree(rm_file)
+        # out_apk=make_temp_file('-build.apk')
+        # shutil.copyfile(original_apk,out_apk)
+        # ApkTool.replace_zip(wkdir,original_apk,out_apk)
+        # return out_apk
+        # subprocess.check_call([SEVENZIP,'a','-tzip',out_apk,wkdir,'-mx9'])
         return unsiged_apk
 
 
@@ -84,6 +131,7 @@ def sign(unsigned_apk, signed_apk):
     pk8 = os.path.join('tests/testkey/testkey.pk8')
     logger.info("signing %s -> %s" % (unsigned_apk, signed_apk))
     subprocess.check_call(['tools/zipalign.exe','-p', '-f' ,'-v' ,'4',unsigned_apk,signed_apk],stdout=subprocess.DEVNULL)
+    subprocess.check_call(['tools/zipalign.exe','-c' ,'-v' ,'4',signed_apk],stdout=subprocess.DEVNULL)
     subprocess.check_call(['java', '-jar', 'tools/apksigner.jar','sign',
     '--key',pk8,
      '--cert',pem , 
@@ -544,7 +592,7 @@ def dcc_main(apkfile, filtercfg, outapk, do_compile=True, project_dir=None, sour
         shutil.copytree('smali', decompiled_dir+'/smali',dirs_exist_ok=True)
         copy_compiled_libs(project_dir, decompiled_dir)
         compress_native_libs(decompiled_dir)
-        unsigned_apk = ApkTool.compile(decompiled_dir)
+        unsigned_apk = ApkTool.compile(decompiled_dir,apkfile)
         sign(unsigned_apk, outapk)
 
 
@@ -589,6 +637,10 @@ if __name__ == '__main__':
 
     if 'apktool' in dcc_cfg and os.path.exists(dcc_cfg['apktool']):
         APKTOOL = dcc_cfg['apktool']
+    # if '7z_full_path' in dcc_cfg and os.path.exists(dcc_cfg['7z_full_path']):
+    #     SEVENZIP = dcc_cfg['7z_full_path']
+    
+    # assert len(SEVENZIP)>0 and os.path.exists(SEVENZIP),'请指定7zip全路径'
 
     try:
         dcc_main(infile, filtercfg, outapk, do_compile, project_dir, source_archive)

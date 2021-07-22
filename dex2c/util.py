@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
+import logging,os,zipfile
 
 logger = logging.getLogger('dex2c.util')
 
@@ -506,3 +506,4 @@ def string(s):
         ret.append('%x' % ((i >> 4) & 0x0f))
         ret.append('%x' % (i & 0x0f))
     return ''.join(ret)
+
