@@ -106,24 +106,42 @@ class ApkTool(object):
     def compile(decompiled_dir,original_apk):
         unsiged_apk = make_temp_file('-unsigned.apk')
         subprocess.check_call(['java', '-jar', APKTOOL, 'b', '-o', unsiged_apk, decompiled_dir])
-        # wkdir=os.path.join(decompiled_dir,'build/apk')
-        # for file_name in os.listdir(wkdir):
-        #     if file_name.endswith('.dex'):
-        #         pass
-        #     elif file_name=='lib':
-        #         pass
-        #     else:
-        #         rm_file=os.path.join(wkdir,file_name)
-        #         if os.path.isfile(rm_file):
-        #             os.unlink(rm_file)
-        #         else:
-        #             shutil.rmtree(rm_file)
-        # out_apk=make_temp_file('-build.apk')
+        wkdir=os.path.join(decompiled_dir,'build/apk')
+        for file_name in os.listdir(wkdir):
+            if file_name.endswith('.dex'):
+                pass
+            elif file_name=='lib':
+                pass
+            else:
+                rm_file=os.path.join(wkdir,file_name)
+                if os.path.isfile(rm_file):
+                    os.unlink(rm_file)
+                else:
+                    shutil.rmtree(rm_file)
+        out_apk=make_temp_file('-build.apk')
+        os.unlink(out_apk)
         # shutil.copyfile(original_apk,out_apk)
         # ApkTool.replace_zip(wkdir,original_apk,out_apk)
         # return out_apk
-        # subprocess.check_call([SEVENZIP,'a','-tzip',out_apk,wkdir,'-mx9'])
-        return unsiged_apk
+
+        dir_temp=make_temp_dir()
+        subprocess.check_call([SEVENZIP,'x','-o'+dir_temp,original_apk])
+        subprocess.check_call([SEVENZIP,'a','-tzip',out_apk,dir_temp+'/*','-mx9'])
+        subprocess.check_call([SEVENZIP,'a','-tzip',out_apk,wkdir+'/*','-mx9'])
+        for root,dirs,files in os.walk(dir_temp):
+            for f in files:
+                if f.endswith('.arsc'):
+                    pass
+                else:
+                    rm_file=os.path.join(root,f)
+                    if os.path.isfile(rm_file):
+                        os.unlink(rm_file)
+                    else:
+                        shutil.rmtree(rm_file)
+        subprocess.check_call([SEVENZIP,'a','-tzip',out_apk,dir_temp+'/*','-mx0'])
+        shutil.rmtree(dir_temp)
+        return out_apk
+
 
 
 def sign(unsigned_apk, signed_apk):
@@ -637,10 +655,10 @@ if __name__ == '__main__':
 
     if 'apktool' in dcc_cfg and os.path.exists(dcc_cfg['apktool']):
         APKTOOL = dcc_cfg['apktool']
-    # if '7z_full_path' in dcc_cfg and os.path.exists(dcc_cfg['7z_full_path']):
-    #     SEVENZIP = dcc_cfg['7z_full_path']
+    if '7z_full_path' in dcc_cfg and os.path.exists(dcc_cfg['7z_full_path']):
+        SEVENZIP = dcc_cfg['7z_full_path']
     
-    # assert len(SEVENZIP)>0 and os.path.exists(SEVENZIP),'请指定7zip全路径'
+    assert len(SEVENZIP)>0 and os.path.exists(SEVENZIP),'请指定7zip全路径'
 
     try:
         dcc_main(infile, filtercfg, outapk, do_compile, project_dir, source_archive)
