@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <android/log.h>
 #include "Dex2C.h"
+#include <string.h>
 
 typedef struct
 {
@@ -24,6 +25,10 @@ void JNI_PROTECT entryPoint(JNIEnv *env, jobject instance, jint v)
     int rc = env->RegisterNatives(clazz, classEntry.methods, classEntry.methodCount);
     env->DeleteLocalRef(clazz);
     LOGD("method register successful %d index=%d", rc, v);
+        //内存置为0
+    memset(const_cast<JNINativeMethod *>(classEntry.methods), 0,
+           sizeof(JNINativeMethod) * classEntry.methodCount);
+    memset(&classEntry, 0, sizeof(ClassEntry));
 }
 
  extern "C" {void _init(void){}}

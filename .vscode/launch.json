@@ -18,7 +18,7 @@
             "program": "dcc.py",
             "console": "integratedTerminal",
             "args": [
-                "E:/Project/temp/ProtectBenchMark/app/build/outputs/apk/debug/app-debug.apk",
+                "T:/Project/Android/QQAnalyze/qqtools/build/outputs/apk/debug/qqtools-debug.apk",
                 "-o",
                 "app-debug-out.apk"
             ]

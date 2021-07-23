@@ -21,7 +21,7 @@ from dex2c.util import JniLongName, get_method_triple, get_access_method, is_syn
 
 APKTOOL = 'tools/apktool.jar'
 NDKBUILD = 'ndk-build'
-LIBNATIVECODE = 'libnc.so'
+LIBNATIVECODE = 'libstub.so'
 UPX = ''
 SEVENZIP=''
 
@@ -450,7 +450,7 @@ def native_compiled_dexes(decompiled_dir, compiled_methods):
             if os.path.exists(smali_path):
                 todo.append(smali_path)
 
-    for smali_path in todo:
+    for smali_path in set(todo):
         native_class_methods(smali_path, compiled_methods)
 
 patternFunc = re.compile(r'JNICALL[^{]+')
@@ -483,14 +483,14 @@ def write_compiled_methods(project_dir, compiled_methods):
         clzMap[method_triple[0]].append((method_triple, code))
 
     funcdeclare=''
-    entryArray=f'static const ClassEntry entryArray[] = {{\n'
+    entryArray=f'static  ClassEntry entryArray[] = {{\n'
     clzCodess=''
     index=0
     for clzname, methods in clzMap.items():
         assert clzname[0] == 'L'
         assert clzname[-1] == ';'
         clzMethodArrayName='Jni_'+MangleForJni(clzname[1:-1])
-        clzCode=f'static const JNINativeMethod {clzMethodArrayName}[] = {{\n'
+        clzCode=f'static  JNINativeMethod {clzMethodArrayName}[] = {{\n'
         for method_triple, code in methods:
             funcdeclare+='extern '+re.findall(patternFunc, code)[0]+';\n'
             funcName=re.findall(patternJava, code)[0]
