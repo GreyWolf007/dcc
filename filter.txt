@@ -10,3 +10,5 @@
 
 # compile all method, use to test compiler
 #.*
+#!.*WolfApplication.*
+^Lcom/wolf

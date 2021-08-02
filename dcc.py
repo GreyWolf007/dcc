@@ -54,8 +54,8 @@ def make_temp_file(suffix='',prefix='dcc'):
 
 
 def clean_temp_files():
-    logger.info("debug mode do not clean temp files")
-    return
+    # logger.info("debug mode do not clean temp files")
+    # return
     for name in tempfiles:
         if not os.path.exists(name):
             continue
@@ -106,6 +106,7 @@ class ApkTool(object):
     def compile(decompiled_dir,original_apk):
         unsiged_apk = make_temp_file('-unsigned.apk')
         subprocess.check_call(['java', '-jar', APKTOOL, 'b', '-o', unsiged_apk, decompiled_dir])
+        return unsiged_apk
         wkdir=os.path.join(decompiled_dir,'build/apk')
         for file_name in os.listdir(wkdir):
             if file_name.endswith('.dex'):

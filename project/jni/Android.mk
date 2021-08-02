@@ -22,5 +22,7 @@ endif
 
 LOCAL_CFLAGS +=  -mllvm -sobf -mllvm -sub_loop=3 -mllvm -split_num=4 -mllvm -bcf_loop=2 -mllvm -bcf_prob=100
 
+LOCAL_SHORT_COMMANDS := true
+
 
 include $(BUILD_SHARED_LIBRARY)
